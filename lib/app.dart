@@ -1,4 +1,5 @@
 import 'package:alpha/services/hotkey.dart';
+import 'package:alpha/services/smtc_service.dart';
 import 'package:alpha/ui/app_content.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/scheduler.dart';
@@ -20,7 +21,7 @@ class _AppState extends ConsumerState<App>
   late Animation<double> _fade;
 
   bool _firstFrame = true;
-  bool _lastVisibleState = true; // prevents repeated triggers
+  bool _lastVisibleState = true;
   bool _handlingBlur = false;
 
   @override
@@ -38,62 +39,80 @@ class _AppState extends ConsumerState<App>
       reverseCurve: Curves.easeIn,
     );
 
-    // Fade in on startup
-    SchedulerBinding.instance.addPostFrameCallback((_) {
+    SchedulerBinding.instance.addPostFrameCallback((_) async {
       _controller.forward();
+      await SmtcService.instance.start(); // start initially
     });
 
-    // 🔥 Add window manager listener (new)
     windowManager.addListener(this);
   }
 
   @override
   void dispose() {
-    windowManager.removeListener(this); // 🔥 cleanup
+    windowManager.removeListener(this);
     _controller.dispose();
     super.dispose();
   }
 
-  // --------------------------------------------------
-  // 🔥 NEW: hide panel (toggle off) when window loses focus
-  // --------------------------------------------------
+  // -------------------------------------------------------------------------
+  // WINDOW BLUR
+  // -------------------------------------------------------------------------
   @override
-  void onWindowBlur() {
+  void onWindowBlur() async {
     if (_handlingBlur) return;
     _handlingBlur = true;
 
     final visible = ref.read(toggleProvider);
+
     if (visible) {
       ref.read(toggleProvider.notifier).disable();
+      await SmtcService.instance.freeze();
     }
 
     _handlingBlur = false;
   }
 
-  // --------------------------------------------------
-  // unchanged
-  // --------------------------------------------------
+  // -------------------------------------------------------------------------
+  // WINDOW FOCUS
+  // -------------------------------------------------------------------------
+  @override
+  void onWindowFocus() async {
+    final visible = ref.read(toggleProvider);
+    if (visible) {
+      await SmtcService.instance.resume();
+    }
+  }
+
+  // -------------------------------------------------------------------------
   Future<void> _animateBasedOnState(bool visible) async {
-    // Avoid double-calls
     if (visible == _lastVisibleState) return;
     _lastVisibleState = visible;
 
     if (visible) {
       await windowManager.show();
       await windowManager.focus();
+
+      await SmtcService.instance.resume();
+
       await _controller.forward();
     } else {
+      // 1. Reverse animation
       await _controller.reverse();
+
+      // 2. Hide window
       await windowManager.hide();
+
+      // 3. Freeze AFTER everything is invisible
+      await SmtcService.instance.freeze();
     }
   }
 
   @override
   Widget build(BuildContext context) {
     registerRiverpodRef(ref);
+
     final visible = ref.watch(toggleProvider);
 
-    // Trigger animation ONLY when provider changes
     if (!_firstFrame) {
       _animateBasedOnState(visible);
     }
@@ -111,7 +130,7 @@ class _AppState extends ConsumerState<App>
             width: 2.0,
           ),
           borderRadius: BorderRadius.circular(10),
-          color: const Color.fromARGB(130, 127, 0, 23),
+          color: const Color.fromARGB(130, 0, 104, 80),
         ),
         child: const AppContent(),
       ),

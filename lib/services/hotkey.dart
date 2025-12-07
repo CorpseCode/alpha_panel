@@ -46,11 +46,10 @@ void registerRiverpodRef(WidgetRef ref) {
   _appRef = ref;
 }
 
-
 void onToggle() {
   // Your logic when Win + ` is pressed system-wide
-  _appRef.read(toggleProvider.notifier).toggle();
-  if (kDebugMode) print('toggled');
+  _appRef.read(toggleProvider.notifier).enable();
+  if (kDebugMode) print('toggle on');
   // windowManager.show();
 }
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:alpha/common/custom_container.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,18 +26,48 @@ class _AudioVisualizerModuleState extends ConsumerState<AudioVisualizerModule> {
 
   List<double> bins = List.filled(64, 0);
 
+  bool _running = false;
+  StreamSubscription<List<double>>? _fftSub;
+
   @override
   void initState() {
     super.initState();
-
     smoother = SmoothFilter(64, config.smoothing);
+    _start();
+  }
+
+  void _start() {
+    if (_running) return;
+    _running = true;
+
     SystemAudioVisualizer.start();
 
-    SystemAudioVisualizer.fftStream.listen((raw) {
-      if (mounted) {
-        setState(() => bins = smoother.apply(raw));
-      }
+    _fftSub = SystemAudioVisualizer.fftStream.listen((raw) {
+      if (!mounted) return;
+      setState(() => bins = smoother.apply(raw));
     });
+  }
+
+  void _stop() {
+    if (!_running) return;
+    _running = false;
+
+    _fftSub?.cancel();
+    _fftSub = null;
+
+    SystemAudioVisualizer.stop(); // native stop
+  }
+
+  /// Can be called externally
+  void pauseVisualizer() => _stop();
+
+  /// Can be called externally
+  void resumeVisualizer() => _start();
+
+  @override
+  void dispose() {
+    _stop();
+    super.dispose();
   }
 
   Widget _buildVisualizer(VisualizerType type) {
@@ -64,7 +95,6 @@ class _AudioVisualizerModuleState extends ConsumerState<AudioVisualizerModule> {
   @override
   Widget build(BuildContext context) {
     final theme = ref.watch(visualizerThemeProvider);
-
     return CustomContainer(
       height: 450,
       width: 450,

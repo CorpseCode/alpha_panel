@@ -106,13 +106,19 @@ class _NowPlayingPanelState extends ConsumerState<NowPlayingPanel> {
         final bool playing = state.toLowerCase() == 'playing';
 
         return _panel(
-          Row(
-            children: <Widget>[
-              _albumArt(artwork),
-              const SizedBox(width: 16),
-              Expanded(child: _meta(title, artist)),
-              const SizedBox(width: 16),
-              _buttons(playing),
+          Stack(
+            children: [
+              Row(
+                mainAxisAlignment: .start,
+                crossAxisAlignment: .start,
+                children: <Widget>[
+                  _albumArt(artwork),
+                  const SizedBox(width: 16),
+                  Expanded(child: _meta(title, artist)),
+                  const SizedBox(width: 16),
+                ],
+              ),
+              Positioned(left: 120, top: 55, child: _buttons(playing)),
             ],
           ),
         );
@@ -123,7 +129,7 @@ class _NowPlayingPanelState extends ConsumerState<NowPlayingPanel> {
   // PANEL CONTAINER
   Widget _panel(Widget child) {
     return CustomContainer(
-      width: 460,
+      width: 450,
       height: 140,
       padding: const EdgeInsets.all(16),
       child: child,
@@ -176,7 +182,7 @@ class _NowPlayingPanelState extends ConsumerState<NowPlayingPanel> {
   // ===========================================================
   Widget _meta(String title, String artist) {
     return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisAlignment: MainAxisAlignment.start,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         _Marquee(
@@ -215,7 +221,7 @@ class _NowPlayingPanelState extends ConsumerState<NowPlayingPanel> {
         _btn(
           playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
           () => _sendMediaKey(MediaKey.playPause),
-          big: true,
+          big: false,
         ),
         const SizedBox(width: 14),
         _btn(Icons.skip_next_rounded, () => _sendMediaKey(MediaKey.next)),

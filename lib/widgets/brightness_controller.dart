@@ -11,7 +11,7 @@ import 'package:flutter_riverpod/legacy.dart';
 //
 // Riverpod Brightness Provider
 //
-final brightnessProvider = StateProvider<double>((ref) => 0.7);
+final brightnessProvider = StateProvider<double>((ref) => 1.0);
 
 ///
 /// BrightnessControl
@@ -77,8 +77,27 @@ class _BrightnessControlState extends ConsumerState<BrightnessControl> {
   // -------------------------------------------------------------------
   Future<void> _initBrightness() async {
     try {
+      // initial fetch
       final b = await _getSystemBrightness();
       ref.read(brightnessProvider.notifier).state = (b / 100).clamp(0, 1);
+
+      // periodic syncing from system
+      Timer.periodic(const Duration(milliseconds: 500), (timer) async {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+
+        final sysVal = await _getSystemBrightness();
+        final sysNorm = (sysVal / 100).clamp(0, 1).toDouble();
+
+        final current = ref.read(brightnessProvider);
+
+        // if slider wasn't manually moved, update it
+        if ((sysNorm - current).abs() > 0.01) {
+          ref.read(brightnessProvider.notifier).state = sysNorm;
+        }
+      });
     } catch (e) {
       debugPrint("Brightness init error: $e");
     }
@@ -116,22 +135,28 @@ class _BrightnessControlState extends ConsumerState<BrightnessControl> {
         crossAxisAlignment: .center,
         mainAxisAlignment: .center,
         children: [
-          const _Label("BRIGHTNESS"),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _PurpleGradientSlider(
-                  value: brightness,
-                  onChanged: (v) {
-                    ref.read(brightnessProvider.notifier).state = v;
-                    _applyBrightness(v);
-                  },
+          Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.brightness_high_outlined,
+                  color: Colors.white,
+                  size: 20,
                 ),
-              ),
-              const SizedBox(width: 20),
-              _ValueNumber(value: brightness),
-            ],
+                Expanded(
+                  child: _PurpleGradientSlider(
+                    value: brightness,
+                    onChanged: (v) {
+                      ref.read(brightnessProvider.notifier).state = v;
+                      _applyBrightness(v);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 20),
+                _ValueNumber(value: brightness),
+              ],
+            ),
           ),
           if (!_initialized)
             Padding(
@@ -150,29 +175,6 @@ class _BrightnessControlState extends ConsumerState<BrightnessControl> {
   }
 }
 
-//
-// ───────────────────────────────────────────────────────────
-// LABEL + NUMBER
-// ───────────────────────────────────────────────────────────
-//
-
-class _Label extends StatelessWidget {
-  final String text;
-  const _Label(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(
-        color: Colors.white70,
-        fontSize: 12,
-        letterSpacing: 0.8,
-        decoration: TextDecoration.none,
-      ),
-    );
-  }
-}
 
 class _ValueNumber extends StatelessWidget {
   final double value;
