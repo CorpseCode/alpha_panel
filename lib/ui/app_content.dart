@@ -1,3 +1,5 @@
+import 'package:alpha/ui/sidebar.dart';
+import 'package:alpha/ui/top_bar.dart';
 import 'package:alpha/widgets/brightness_controller.dart';
 import 'package:alpha/widgets/now_playing_panel.dart';
 import 'package:alpha/widgets/volume_controller.dart';
@@ -9,17 +11,20 @@ class AppContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Stack(
       children: [
-        Column(
-          crossAxisAlignment: .start,
-          mainAxisAlignment: .spaceBetween,
-          children: [
-            AudioVisualizerModule(),
-            NowPlayingPanel(),
-            VolumeControl(),
-            BrightnessControl(),
-          ],
+        TopBar(),
+        SidebarOverlay(
+          child: Column(
+            crossAxisAlignment: .start,
+            mainAxisAlignment: .spaceBetween,
+            children: [
+              AudioVisualizerModule(),
+              NowPlayingPanel(),
+              VolumeControl(),
+              BrightnessControl(),
+            ],
+          ),
         ),
       ],
     );

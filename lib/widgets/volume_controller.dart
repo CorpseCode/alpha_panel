@@ -120,7 +120,7 @@ class _VolumeControlState extends ConsumerState<VolumeControl> {
                       ? Icons.volume_off
                       : Icons.volume_up,
                   size: 26,
-                  color: Colors.white.withValues(alpha: 0.9),
+                  color: Colors.white54,
                 ),
               ),
 

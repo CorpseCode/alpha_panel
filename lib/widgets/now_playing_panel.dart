@@ -110,7 +110,7 @@ class _NowPlayingPanelState extends ConsumerState<NowPlayingPanel> {
             children: [
               Row(
                 mainAxisAlignment: .start,
-                crossAxisAlignment: .start,
+                crossAxisAlignment: .center,
                 children: <Widget>[
                   _albumArt(artwork),
                   const SizedBox(width: 16),

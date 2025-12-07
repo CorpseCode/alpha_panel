@@ -1,8 +1,9 @@
 // media_smtc_listener.cpp
 // WORKING SMTC LISTENER (NO THUMBNAIL: SMTC DOES NOT EXPOSE IT)
+// Single-instance: only one process allowed at a time.
 
+#include <windows.h>
 #include <winrt/Windows.Media.Control.h>
-
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Media.h>
 #include <winrt/Windows.Media.Playback.h>
@@ -20,47 +21,106 @@ using namespace Windows::Foundation;
 using namespace Windows::Media;
 using namespace Windows::Media::Control;
 using namespace Windows::Media::Playback;
-using namespace Windows::Storage::Streams;
-using namespace Windows::Graphics::Imaging;
 
 // -------------------------------------------------------
-// Get WASAPI peak (0.0 - 1.0)
+// Simple peak helper (setup once)
 // -------------------------------------------------------
-float GetPeak()
+class PeakMeter
 {
-    CoInitialize(nullptr);
+public:
+    PeakMeter()
+    {
+        CoInitialize(nullptr);
 
-    IMMDeviceEnumerator *enumerator = nullptr;
-    if (FAILED(CoCreateInstance(
-            __uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-            __uuidof(IMMDeviceEnumerator), (void **)&enumerator)))
+        HRESULT hr = CoCreateInstance(
+            __uuidof(MMDeviceEnumerator),
+            nullptr,
+            CLSCTX_ALL,
+            __uuidof(IMMDeviceEnumerator),
+            reinterpret_cast<void **>(&enumerator_));
+
+        if (FAILED(hr))
+            return;
+
+        hr = enumerator_->GetDefaultAudioEndpoint(
+            eRender,
+            eMultimedia,
+            &device_);
+        if (FAILED(hr))
+            return;
+
+        hr = device_->Activate(
+            __uuidof(IAudioMeterInformation),
+            CLSCTX_ALL,
+            nullptr,
+            reinterpret_cast<void **>(&meter_));
+        if (FAILED(hr))
+            return;
+
+        ok_ = true;
+    }
+
+    ~PeakMeter()
+    {
+        if (meter_)
+            meter_->Release();
+        if (device_)
+            device_->Release();
+        if (enumerator_)
+            enumerator_->Release();
+        CoUninitialize();
+    }
+
+    float GetPeak() const
+    {
+        if (!ok_ || !meter_)
+            return 0.0f;
+        float peak = 0.0f;
+        if (SUCCEEDED(meter_->GetPeakValue(&peak)))
+        {
+            return peak;
+        }
         return 0.0f;
+    }
 
-    IMMDevice *device = nullptr;
-    if (FAILED(enumerator->GetDefaultAudioEndpoint(eRender, eMultimedia, &device)))
-        return 0.0f;
-
-    IAudioMeterInformation *meter = nullptr;
-    if (FAILED(device->Activate(__uuidof(IAudioMeterInformation),
-                                CLSCTX_ALL, nullptr, (void **)&meter)))
-        return 0.0f;
-
-    float peak = 0.0f;
-    meter->GetPeakValue(&peak);
-
-    meter->Release();
-    device->Release();
-    enumerator->Release();
-    CoUninitialize();
-
-    return peak;
-}
+private:
+    bool ok_ = false;
+    IMMDeviceEnumerator *enumerator_ = nullptr;
+    IMMDevice *device_ = nullptr;
+    IAudioMeterInformation *meter_ = nullptr;
+};
 
 // -------------------------------------------------------
 // MAIN
 // -------------------------------------------------------
 int main()
 {
+    // =====================================================
+    // 1) SINGLE INSTANCE GUARD (CORE FIX)
+    // =====================================================
+    // Global mutex name – should be unique to your app
+    HANDLE hMutex = CreateMutexW(
+        nullptr,
+        FALSE,
+        L"Global\\Alpha_MediaSmtcListener_Mutex");
+
+    if (!hMutex)
+    {
+        // Could not create mutex, safe to just exit
+        return 1;
+    }
+
+    // If another instance already created this mutex:
+    if (GetLastError() == ERROR_ALREADY_EXISTS)
+    {
+        // Another listener is already running → exit quietly
+        CloseHandle(hMutex);
+        return 0;
+    }
+
+    // =====================================================
+    // 2) NORMAL SMTC SETUP
+    // =====================================================
     init_apartment();
 
     auto smtc = GlobalSystemMediaTransportControlsSessionManager::RequestAsync().get();
@@ -69,11 +129,14 @@ int main()
     if (!session)
     {
         std::cout << "{\"title\":\"\",\"artist\":\"\",\"state\":\"Unknown\",\"peak\":0}" << std::endl;
+        CloseHandle(hMutex);
         return 0;
     }
 
     session.PlaybackInfoChanged([](auto const &, auto const &) {});
     session.MediaPropertiesChanged([](auto const &, auto const &) {});
+
+    PeakMeter peakMeter;
 
     while (true)
     {
@@ -104,10 +167,7 @@ int main()
         int64_t posMs = timeline.Position().count() / 10000;
         int64_t durMs = timeline.EndTime().count() / 10000;
 
-        // SMTC DOES NOT PROVIDE ARTWORK
-        std::string artwork = "";
-
-        float peak = GetPeak();
+        float peak = peakMeter.GetPeak();
 
         std::cout
             << "{"
@@ -117,12 +177,14 @@ int main()
             << "\"peak\":" << peak << ","
             << "\"position\":" << posMs << ","
             << "\"duration\":" << durMs << ","
-            << "\"artwork\":\"\"" // always empty for now
+            << "\"artwork\":\"\"" // still empty
             << "}"
             << std::endl;
 
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
     }
 
+    // Never really reached, but good practice:
+    CloseHandle(hMutex);
     return 0;
 }

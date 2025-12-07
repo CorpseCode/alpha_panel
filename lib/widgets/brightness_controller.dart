@@ -136,14 +136,15 @@ class _BrightnessControlState extends ConsumerState<BrightnessControl> {
         mainAxisAlignment: .center,
         children: [
           Padding(
-            padding: const EdgeInsets.all(20.0),
+            padding: const EdgeInsets.symmetric(horizontal: 20.0),
             child: Row(
               children: [
                 Icon(
-                  Icons.brightness_high_outlined,
-                  color: Colors.white,
+                  Icons.brightness_7_outlined,
+                  color: Colors.white54,
                   size: 20,
                 ),
+                const SizedBox(width: 20),
                 Expanded(
                   child: _PurpleGradientSlider(
                     value: brightness,
@@ -174,7 +175,6 @@ class _BrightnessControlState extends ConsumerState<BrightnessControl> {
     );
   }
 }
-
 
 class _ValueNumber extends StatelessWidget {
   final double value;

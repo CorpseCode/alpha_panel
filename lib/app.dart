@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:system_audio_visualizer/system_audio_visualizer.dart';
 
 import 'providers/toggle_provider.dart';
 
@@ -42,6 +43,8 @@ class _AppState extends ConsumerState<App>
     SchedulerBinding.instance.addPostFrameCallback((_) async {
       _controller.forward();
       await SmtcService.instance.start(); // start initially
+      // optional: start visualizer here too if you want it active on first show
+      SystemAudioVisualizer.start();
     });
 
     windowManager.addListener(this);
@@ -65,7 +68,13 @@ class _AppState extends ConsumerState<App>
     final visible = ref.read(toggleProvider);
 
     if (visible) {
+      // toggle off panel
       ref.read(toggleProvider.notifier).disable();
+
+      // 1) stop AV first
+      SystemAudioVisualizer.stop();
+
+      // 2) then freeze SMTC
       await SmtcService.instance.freeze();
     }
 
@@ -79,10 +88,16 @@ class _AppState extends ConsumerState<App>
   void onWindowFocus() async {
     final visible = ref.read(toggleProvider);
     if (visible) {
+      // 1) resume SMTC
       await SmtcService.instance.resume();
+
+      // 2) resume AV
+      SystemAudioVisualizer.start();
     }
   }
 
+  // -------------------------------------------------------------------------
+  // ANIMATION BASED ON GLOBAL TOGGLE STATE
   // -------------------------------------------------------------------------
   Future<void> _animateBasedOnState(bool visible) async {
     if (visible == _lastVisibleState) return;
@@ -92,17 +107,22 @@ class _AppState extends ConsumerState<App>
       await windowManager.show();
       await windowManager.focus();
 
+      // resume SMTC + visualizer before fade-in finishes
       await SmtcService.instance.resume();
+      SystemAudioVisualizer.start();
 
       await _controller.forward();
     } else {
-      // 1. Reverse animation
+      // stop AV immediately when we start hiding
+      SystemAudioVisualizer.stop();
+
+      // run fade-out
       await _controller.reverse();
 
-      // 2. Hide window
+      // hide window
       await windowManager.hide();
 
-      // 3. Freeze AFTER everything is invisible
+      // freeze SMTC after it's fully invisible
       await SmtcService.instance.freeze();
     }
   }
@@ -121,7 +141,7 @@ class _AppState extends ConsumerState<App>
     return FadeTransition(
       opacity: _fade,
       child: Container(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
         height: 900,
         width: 1800,
         decoration: BoxDecoration(
@@ -130,7 +150,7 @@ class _AppState extends ConsumerState<App>
             width: 2.0,
           ),
           borderRadius: BorderRadius.circular(10),
-          color: const Color.fromARGB(130, 0, 104, 80),
+          color: const Color.fromARGB(130, 0, 38, 104),
         ),
         child: const AppContent(),
       ),
