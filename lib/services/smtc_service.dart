@@ -3,9 +3,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
-import 'package:path/path.dart' as p;
 import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
 
 class SmtcData {
   final String title;
@@ -63,12 +64,17 @@ class SmtcService {
 
   Process? _proc;
   bool _running = false;
-  bool _frozen = false; // <-- IMPORTANT FLAG
+  bool _frozen = false;
+  bool _launching = false; // <-- prevent concurrent spawns
+
   final _ctrl = StreamController<SmtcData>.broadcast();
   Stream<SmtcData> get stream => _ctrl.stream;
 
   SmtcData last = SmtcData.empty;
 
+  // ----------------------------------------------------------
+  // RESOLVE EXE LOCATION
+  // ----------------------------------------------------------
   String _resolveExe() {
     final exeFromFlutterBin = p.join(
       p.dirname(Platform.resolvedExecutable),
@@ -91,7 +97,7 @@ class SmtcService {
     if (_running) return;
 
     _running = true;
-    _launch();
+    _launch(); // fire and forget
   }
 
   Future<void> stop() async {
@@ -103,6 +109,7 @@ class SmtcService {
 
     if (p != null) {
       try {
+        if (kDebugMode) debugPrint('SMTC: killing PID ${p.pid}');
         p.kill();
       } catch (_) {}
     }
@@ -112,7 +119,8 @@ class SmtcService {
   Future<void> resume() async {
     if (_frozen) {
       _frozen = false;
-      start();
+      _running = true;
+      _launch();
       debugPrint("SMTC Resumed");
     }
   }
@@ -120,21 +128,31 @@ class SmtcService {
   /// Called WHEN losing window focus
   Future<void> freeze() async {
     await stop();
-    debugPrint("Freezed SMTC"); // stops process properly
+    debugPrint("Freezed SMTC");
   }
 
   // ======================================================
   // MAIN PROCESS LAUNCH
   // ======================================================
   Future<void> _launch() async {
-    if (_frozen) {
-      return; // do not relaunch until resume()
+    if (_frozen || !_running) return;
+
+    // already spawning or already have a process => no new one
+    if (_launching) return;
+    if (_proc != null) {
+      if (kDebugMode)
+        debugPrint("SMTC: process already running (PID ${_proc!.pid})");
+      return;
     }
+
+    _launching = true;
 
     try {
       final exe = _resolveExe();
 
-      _proc = await Process.start(exe, [], runInShell: true);
+      _proc = await Process.start(exe, const [], runInShell: true);
+
+      if (kDebugMode) debugPrint("SMTC STARTED: PID=${_proc!.pid}");
 
       _proc!.stdout
           .transform(utf8.decoder)
@@ -146,6 +164,10 @@ class SmtcService {
       });
 
       _proc!.exitCode.then((code) {
+        if (kDebugMode) debugPrint("SMTC EXIT: code=$code");
+        _proc = null; // mark as gone
+
+        // if still supposed to run and not frozen, auto-restart
         if (_running && !_frozen) {
           Future.delayed(const Duration(milliseconds: 500), _launch);
         }
@@ -153,9 +175,13 @@ class SmtcService {
     } catch (err) {
       if (kDebugMode) debugPrint("SMTC START FAILED: $err");
 
-      if (!_frozen) {
+      _proc = null;
+
+      if (!_frozen && _running) {
         Future.delayed(const Duration(seconds: 2), _launch);
       }
+    } finally {
+      _launching = false;
     }
   }
 
@@ -175,7 +201,9 @@ class SmtcService {
 
       last = d;
       _ctrl.add(d);
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint("SMTC parse error: $e\nline: $line");
+    }
   }
 
   // ======================================================
