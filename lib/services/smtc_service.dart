@@ -5,8 +5,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
+import 'package:http/http.dart' as http;
 
 class SmtcData {
   final String title;
@@ -65,7 +65,7 @@ class SmtcService {
   Process? _proc;
   bool _running = false;
   bool _frozen = false;
-  bool _launching = false; // <-- prevent concurrent spawns
+  bool _launching = false;
 
   final _ctrl = StreamController<SmtcData>.broadcast();
   Stream<SmtcData> get stream => _ctrl.stream;
@@ -73,86 +73,99 @@ class SmtcService {
   SmtcData last = SmtcData.empty;
 
   // ----------------------------------------------------------
-  // RESOLVE EXE LOCATION
+  // Resolve executable path
   // ----------------------------------------------------------
   String _resolveExe() {
+    // 1) when running from flutter tool
     final exeFromFlutterBin = p.join(
       p.dirname(Platform.resolvedExecutable),
       'media_smtc_listener.exe',
     );
     if (File(exeFromFlutterBin).existsSync()) return exeFromFlutterBin;
 
+    // 2) fallback: root
     final exeInRoot = p.join(Directory.current.path, 'media_smtc_listener.exe');
     if (File(exeInRoot).existsSync()) return exeInRoot;
 
     throw Exception("SMTC exe not found");
   }
 
-  // ======================================================
-  // PUBLIC CONTROL
-  // ======================================================
+  // ----------------------------------------------------------
+  // Kill stale copies before launching
+  // ----------------------------------------------------------
+  Future<void> _killStaleProcesses() async {
+    try {
+      if (Platform.isWindows) {
+        await Process.run('taskkill', [
+          '/F',
+          '/IM',
+          'media_smtc_listener.exe',
+        ], runInShell: true);
+        if (kDebugMode) debugPrint("💀 Killed stale SMTC processes");
+      }
+    } catch (_) {}
+  }
 
+  // ----------------------------------------------------------
+  // Public controls
+  // ----------------------------------------------------------
   Future<void> start() async {
     _frozen = false;
-    if (_running) return;
-
     _running = true;
-    _launch(); // fire and forget
+    _launch();
   }
 
   Future<void> stop() async {
     _frozen = true;
     _running = false;
 
-    final p = _proc;
+    final old = _proc;
     _proc = null;
 
-    if (p != null) {
+    if (old != null) {
       try {
-        if (kDebugMode) debugPrint('SMTC: killing PID ${p.pid}');
-        p.kill();
+        old.kill();
+        if (kDebugMode) debugPrint("💀 Explicit kill of PID ${old.pid}");
       } catch (_) {}
     }
   }
 
-  /// Called BEFORE panel animation finishes
   Future<void> resume() async {
     if (_frozen) {
+      if (kDebugMode) debugPrint("▶ Resume called");
       _frozen = false;
       _running = true;
       _launch();
-      debugPrint("SMTC Resumed");
     }
   }
 
-  /// Called WHEN losing window focus
   Future<void> freeze() async {
     await stop();
-    debugPrint("Freezed SMTC");
+    if (kDebugMode) debugPrint("⛔ SMTC frozen");
   }
 
-  // ======================================================
-  // MAIN PROCESS LAUNCH
-  // ======================================================
+  // ----------------------------------------------------------
+  // Main launch logic — SINGLE INSTANCE ONLY
+  // ----------------------------------------------------------
   Future<void> _launch() async {
     if (_frozen || !_running) return;
-
-    // already spawning or already have a process => no new one
     if (_launching) return;
+
+    // if we already have a working process, do nothing
     if (_proc != null) {
-      if (kDebugMode)
-        debugPrint("SMTC: process already running (PID ${_proc!.pid})");
+      if (kDebugMode) debugPrint("⚠ SMTC already active PID=${_proc!.pid}");
       return;
     }
 
     _launching = true;
 
     try {
-      final exe = _resolveExe();
+      await _killStaleProcesses(); // <-- CRUCIAL
 
+      final exe = _resolveExe();
       _proc = await Process.start(exe, const [], runInShell: true);
 
-      if (kDebugMode) debugPrint("SMTC STARTED: PID=${_proc!.pid}");
+      if (kDebugMode) debugPrint("🔥 SMTC STARTED PID=${_proc!.pid}");
 
       _proc!.stdout
           .transform(utf8.decoder)
@@ -160,21 +173,22 @@ class SmtcService {
           .listen(_handleLine);
 
       _proc!.stderr.transform(utf8.decoder).listen((err) {
-        if (kDebugMode) debugPrint("SMTC STDERR: $err");
+        debugPrint("SMTC STDERR: $err");
       });
 
       _proc!.exitCode.then((code) {
-        if (kDebugMode) debugPrint("SMTC EXIT: code=$code");
-        _proc = null; // mark as gone
+        if (kDebugMode) debugPrint("💔 SMTC EXIT code=$code");
 
-        // if still supposed to run and not frozen, auto-restart
+        _proc = null;
+
+        // Restart only if window is active & not frozen
         if (_running && !_frozen) {
-          Future.delayed(const Duration(milliseconds: 500), _launch);
+          debugPrint("🔄 Restarting SMTC after exit…");
+          Future.delayed(const Duration(milliseconds: 600), _launch);
         }
       });
     } catch (err) {
-      if (kDebugMode) debugPrint("SMTC START FAILED: $err");
-
+      debugPrint("🚫 Launch failed: $err");
       _proc = null;
 
       if (!_frozen && _running) {
@@ -185,45 +199,44 @@ class SmtcService {
     }
   }
 
-  // ======================================================
-  // PARSE LINES FROM EXE
-  // ======================================================
+  // ----------------------------------------------------------
+  // Handle incoming JSON lines
+  // ----------------------------------------------------------
   Future<void> _handleLine(String line) async {
     try {
-      final j = jsonDecode(line);
-      SmtcData d = SmtcData.fromJson(j);
+      final json = jsonDecode(line);
+      SmtcData d = SmtcData.fromJson(json);
 
-      // fetch fallback art only if needed
       if (d.artwork.isEmpty && (d.title.isNotEmpty || d.artist.isNotEmpty)) {
-        final art = await _fetchFallbackArt(d.title, d.artist);
-        if (art != null) d = d.copyWith(artwork: art);
+        final maybe = await _fetchFallbackArt(d.title, d.artist);
+        if (maybe != null) {
+          d = d.copyWith(artwork: maybe);
+        }
       }
 
       last = d;
       _ctrl.add(d);
-    } catch (e) {
-      if (kDebugMode) debugPrint("SMTC parse error: $e\nline: $line");
-    }
+    } catch (_) {}
   }
 
-  // ======================================================
-  // EXTRA: artwork fetcher
-  // ======================================================
+  // ----------------------------------------------------------
+  // Fallback artwork via Apple API
+  // ----------------------------------------------------------
   Future<String?> _fetchFallbackArt(String title, String artist) async {
     try {
-      final query = Uri.encodeComponent("$title $artist");
+      final q = Uri.encodeComponent("$title $artist");
       final url = Uri.parse(
-        "https://itunes.apple.com/search?term=$query&limit=1&entity=song",
+        "https://itunes.apple.com/search?term=$q&limit=1&entity=song",
       );
 
       final resp = await http.get(url);
       if (resp.statusCode != 200) return null;
 
       final js = jsonDecode(resp.body);
-      if (js['results'] is! List || js['results'].isEmpty) return null;
+      if (js['results'] == null || js['results'].isEmpty) return null;
 
-      final art = js['results'][0]['artworkUrl100'];
-      if (art is! String) return null;
+      final art = js['results'][0]['artworkUrl100'] as String?;
+      if (art == null || art.isEmpty) return null;
 
       return art.replaceAll("100x100", "600x600");
     } catch (_) {
