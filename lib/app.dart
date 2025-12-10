@@ -1,4 +1,5 @@
 import 'package:alpha/services/hotkey.dart';
+import 'package:alpha/services/tray.dart';
 import 'package:alpha/services/smtc_service.dart';
 import 'package:alpha/ui/app_content.dart';
 import 'package:flutter/cupertino.dart';
@@ -23,7 +24,7 @@ class _AppState extends ConsumerState<App>
 
   bool _firstFrame = true;
   bool _lastVisibleState = true;
-  bool _handlingBlur = false;
+  bool _animating = false;
 
   @override
   void initState() {
@@ -31,7 +32,7 @@ class _AppState extends ConsumerState<App>
 
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 700),
     );
 
     _fade = CurvedAnimation(
@@ -42,8 +43,9 @@ class _AppState extends ConsumerState<App>
 
     SchedulerBinding.instance.addPostFrameCallback((_) async {
       _controller.forward();
-      await SmtcService.instance.start(); // start initially
-      // optional: start visualizer here too if you want it active on first show
+
+      // Start SMTC daemon ONCE
+      await SmtcService.instance.start();
       SystemAudioVisualizer.start();
     });
 
@@ -52,101 +54,105 @@ class _AppState extends ConsumerState<App>
 
   @override
   void dispose() {
-    windowManager.removeListener(this);
-    _controller.dispose();
+    if (_controller.isAnimating || _controller.value != 0.0) {
+      _controller.stop();
+    }
+
+    try {
+      _controller.dispose();
+    } catch (_) {}
+
+    try {
+      windowManager.removeListener(this);
+    } catch (_) {}
+
     super.dispose();
   }
 
-  // -------------------------------------------------------------------------
-  // WINDOW BLUR
-  // -------------------------------------------------------------------------
   @override
   void onWindowBlur() async {
-    if (_handlingBlur) return;
-    _handlingBlur = true;
-
     final visible = ref.read(toggleProvider);
 
+    // If panel open and user switches away
     if (visible) {
-      // toggle off panel
       ref.read(toggleProvider.notifier).disable();
-
-      // 1) stop AV first
       SystemAudioVisualizer.stop();
-
-      // 2) then freeze SMTC
-      await SmtcService.instance.freeze();
     }
 
-    _handlingBlur = false;
+    // IMPORTANT:
+    // DO NOT CLOSE SMTC
+    // DO NOT RESTART
   }
 
-  // -------------------------------------------------------------------------
-  // WINDOW FOCUS
-  // -------------------------------------------------------------------------
   @override
   void onWindowFocus() async {
     final visible = ref.read(toggleProvider);
-    if (visible) {
-      // 1) resume SMTC
-      await SmtcService.instance.resume();
 
-      // 2) resume AV
+    // if visible → only resume visualizer
+    if (visible) {
       SystemAudioVisualizer.start();
     }
+
+    // DO NOT restart SMTC here
   }
 
-  // -------------------------------------------------------------------------
-  // ANIMATION BASED ON GLOBAL TOGGLE STATE
-  // -------------------------------------------------------------------------
-  Future<void> _animateBasedOnState(bool visible) async {
-    if (visible == _lastVisibleState) return;
+  Future<void> _animateVisibility(bool visible) async {
+    if (_animating) return;
+    _animating = true;
+
+    if (visible == _lastVisibleState) {
+      _animating = false;
+      return;
+    }
+
     _lastVisibleState = visible;
 
     if (visible) {
+      // window fully visible
       await windowManager.show();
       await windowManager.focus();
 
-      // resume SMTC + visualizer before fade-in finishes
-      await SmtcService.instance.resume();
+      // restart SMTC ONLY ON SHOW
+      await SmtcService.instance.restart();
+
+      // visualizer follows UI
       SystemAudioVisualizer.start();
 
       await _controller.forward();
     } else {
-      // stop AV immediately when we start hiding
       SystemAudioVisualizer.stop();
 
-      // run fade-out
       await _controller.reverse();
-
-      // hide window
       await windowManager.hide();
 
-      // freeze SMTC after it's fully invisible
-      await SmtcService.instance.freeze();
+      // DO NOT kill SMTC
     }
+
+    _animating = false;
   }
 
   @override
   Widget build(BuildContext context) {
     registerRiverpodRef(ref);
+    registerTrayRef(ref);
 
     final visible = ref.watch(toggleProvider);
 
+    // Toggle is controlled indirectly by onWindowBlur
     if (!_firstFrame) {
-      _animateBasedOnState(visible);
+      _animateVisibility(visible);
     }
     _firstFrame = false;
 
     return FadeTransition(
       opacity: _fade,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-        height: 900,
-        width: 1800,
+        padding: const EdgeInsets.fromLTRB(10, 10, 10, 20),
+        height: 1000,
+        width: 1900,
         decoration: BoxDecoration(
           border: Border.all(
-            color: CupertinoColors.systemCyan.withAlpha(120),
+            color: CupertinoColors.systemCyan.withAlpha(110),
             width: 2.0,
           ),
           borderRadius: BorderRadius.circular(10),

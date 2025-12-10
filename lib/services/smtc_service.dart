@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:http/http.dart' as http;
 
+/// REAL DATA MODEL
 class SmtcData {
   final String title;
   final String artist;
@@ -25,10 +26,10 @@ class SmtcData {
 
   factory SmtcData.fromJson(Map<String, dynamic> j) {
     return SmtcData(
-      title: (j['title'] ?? '') as String,
-      artist: (j['artist'] ?? '') as String,
-      state: (j['state'] ?? 'Unknown') as String,
-      artwork: (j['artwork'] ?? '') as String,
+      title: (j['title'] ?? ''),
+      artist: (j['artist'] ?? ''),
+      state: (j['state'] ?? 'Unknown'),
+      artwork: (j['artwork'] ?? ''),
       peak: ((j['peak'] ?? 0.0) as num).toDouble(),
     );
   }
@@ -58,114 +59,76 @@ class SmtcData {
   );
 }
 
+/// SERVICE ITSELF
 class SmtcService {
   SmtcService._internal();
-  static final SmtcService instance = SmtcService._internal();
+  static final instance = SmtcService._internal();
 
   Process? _proc;
-  bool _running = false;
-  bool _frozen = false;
   bool _launching = false;
+  bool _purgedOnce = false;
 
   final _ctrl = StreamController<SmtcData>.broadcast();
   Stream<SmtcData> get stream => _ctrl.stream;
 
   SmtcData last = SmtcData.empty;
 
-  // ----------------------------------------------------------
-  // Resolve executable path
-  // ----------------------------------------------------------
+  /// Cache artwork based on title+artist
+  final Map<String, String> _artCache = {};
+
+  /////////////////////////////////////////////////////////////////////////////
+  // Resolve Executable
+  /////////////////////////////////////////////////////////////////////////////
   String _resolveExe() {
-    // 1) when running from flutter tool
-    final exeFromFlutterBin = p.join(
+    final devExe = p.join(
       p.dirname(Platform.resolvedExecutable),
       'media_smtc_listener.exe',
     );
-    if (File(exeFromFlutterBin).existsSync()) return exeFromFlutterBin;
 
-    // 2) fallback: root
-    final exeInRoot = p.join(Directory.current.path, 'media_smtc_listener.exe');
-    if (File(exeInRoot).existsSync()) return exeInRoot;
+    if (File(devExe).existsSync()) return devExe;
 
-    throw Exception("SMTC exe not found");
+    final rootExe = p.join(Directory.current.path, 'media_smtc_listener.exe');
+
+    if (File(rootExe).existsSync()) return rootExe;
+
+    throw Exception("media_smtc_listener.exe not found");
   }
 
-  // ----------------------------------------------------------
-  // Kill stale copies before launching
-  // ----------------------------------------------------------
-  Future<void> _killStaleProcesses() async {
-    try {
-      if (Platform.isWindows) {
-        await Process.run('taskkill', [
-          '/F',
-          '/IM',
-          'media_smtc_listener.exe',
-        ], runInShell: true);
-        if (kDebugMode) debugPrint("💀 Killed stale SMTC processes");
-      }
-    } catch (_) {}
-  }
+  /////////////////////////////////////////////////////////////////////////////
+  // Public Lifecycle
+  /////////////////////////////////////////////////////////////////////////////
 
-  // ----------------------------------------------------------
-  // Public controls
-  // ----------------------------------------------------------
   Future<void> start() async {
-    _frozen = false;
-    _running = true;
-    _launch();
-  }
-
-  Future<void> stop() async {
-    _frozen = true;
-    _running = false;
-
-    final old = _proc;
-    _proc = null;
-
-    if (old != null) {
-      try {
-        old.kill();
-        if (kDebugMode) debugPrint("💀 Explicit kill of PID ${old.pid}");
-      } catch (_) {}
-    }
-  }
-
-  Future<void> resume() async {
-    if (_frozen) {
-      if (kDebugMode) debugPrint("▶ Resume called");
-      _frozen = false;
-      _running = true;
-      _launch();
-    }
-  }
-
-  Future<void> freeze() async {
-    await stop();
-    if (kDebugMode) debugPrint("⛔ SMTC frozen");
-  }
-
-  // ----------------------------------------------------------
-  // Main launch logic — SINGLE INSTANCE ONLY
-  // ----------------------------------------------------------
-  Future<void> _launch() async {
-    if (_frozen || !_running) return;
-    if (_launching) return;
-
-    // if we already have a working process, do nothing
     if (_proc != null) {
-      if (kDebugMode) debugPrint("⚠ SMTC already active PID=${_proc!.pid}");
+      debugPrint("⚠ Already running, ignoring start()");
       return;
     }
 
+    debugPrint("▶ SMTC START");
+    await _launchFresh();
+  }
+
+  Future<void> restart() async {
+    debugPrint("🔄 SMTC RESTART triggered");
+    await _killCurrent();
+    await _launchFresh();
+  }
+
+  /////////////////////////////////////////////////////////////////////////////
+  // LAUNCH PROCESS
+  /////////////////////////////////////////////////////////////////////////////
+  Future<void> _launchFresh() async {
+    if (_launching) return;
     _launching = true;
 
+    await _purgeZombieProcesses();
+
     try {
-      await _killStaleProcesses(); // <-- CRUCIAL
-
       final exe = _resolveExe();
-      _proc = await Process.start(exe, const [], runInShell: true);
+      _proc = await Process.start(exe, [], runInShell: true);
 
-      if (kDebugMode) debugPrint("🔥 SMTC STARTED PID=${_proc!.pid}");
+      final pid = _proc?.pid;
+      debugPrint("🔥 SMTC ACTIVE PID=$pid");
 
       _proc!.stdout
           .transform(utf8.decoder)
@@ -173,70 +136,130 @@ class SmtcService {
           .listen(_handleLine);
 
       _proc!.stderr.transform(utf8.decoder).listen((err) {
-        debugPrint("SMTC STDERR: $err");
+        debugPrint("❌ SMTC error: $err");
       });
 
-      _proc!.exitCode.then((code) {
-        if (kDebugMode) debugPrint("💔 SMTC EXIT code=$code");
+      _proc!.exitCode.then((code) async {
+        final exitPid = pid; // safe copy
+        debugPrint("💔 SMTC EXIT PID=$exitPid CODE=$code");
+
+        final cleanExit = code == 0;
 
         _proc = null;
 
-        // Restart only if window is active & not frozen
-        if (_running && !_frozen) {
-          debugPrint("🔄 Restarting SMTC after exit…");
-          Future.delayed(const Duration(milliseconds: 600), _launch);
+        if (cleanExit) {
+          debugPrint("🟡 SMTC idle — not restarting");
+          return;
         }
+
+        debugPrint("🔴 Unexpected exit — restarting...");
+        await Future.delayed(const Duration(milliseconds: 450));
+
+        await _launchFresh();
       });
     } catch (err) {
-      debugPrint("🚫 Launch failed: $err");
+      debugPrint("🚫 SMTC launch failed: $err");
       _proc = null;
-
-      if (!_frozen && _running) {
-        Future.delayed(const Duration(seconds: 2), _launch);
-      }
+      await Future.delayed(const Duration(seconds: 2));
+      await _launchFresh();
     } finally {
       _launching = false;
     }
   }
 
-  // ----------------------------------------------------------
-  // Handle incoming JSON lines
-  // ----------------------------------------------------------
-  Future<void> _handleLine(String line) async {
+  /////////////////////////////////////////////////////////////////////////////
+  Future<void> _killCurrent() async {
+    final old = _proc;
+    _proc = null;
+
+    if (old == null) return;
+
     try {
-      final json = jsonDecode(line);
-      SmtcData d = SmtcData.fromJson(json);
-
-      if (d.artwork.isEmpty && (d.title.isNotEmpty || d.artist.isNotEmpty)) {
-        final maybe = await _fetchFallbackArt(d.title, d.artist);
-        if (maybe != null) {
-          d = d.copyWith(artwork: maybe);
-        }
-      }
-
-      last = d;
-      _ctrl.add(d);
+      debugPrint("💀 Killing SMTC PID=${old.pid}");
+      old.kill();
     } catch (_) {}
   }
 
-  // ----------------------------------------------------------
-  // Fallback artwork via Apple API
-  // ----------------------------------------------------------
-  Future<String?> _fetchFallbackArt(String title, String artist) async {
+  /////////////////////////////////////////////////////////////////////////////
+  Future<void> _purgeZombieProcesses() async {
+    if (_purgedOnce) return;
+    _purgedOnce = true;
+
     try {
-      final q = Uri.encodeComponent("$title $artist");
+      await Process.run('taskkill', [
+        '/F',
+        '/IM',
+        'media_smtc_listener.exe',
+      ], runInShell: true);
+      debugPrint("💣 Purged zombie SMTC instances");
+    } catch (_) {}
+  }
+
+  /////////////////////////////////////////////////////////////////////////////
+  // DATA HANDLER
+  /////////////////////////////////////////////////////////////////////////////
+  Future<void> _handleLine(String line) async {
+    SmtcData raw;
+
+    try {
+      raw = SmtcData.fromJson(jsonDecode(line));
+    } catch (_) {
+      return;
+    }
+
+    final key = "${raw.title}:${raw.artist}".trim();
+    SmtcData data = raw;
+
+    // Case 1: Cached artwork
+    if (_artCache.containsKey(key)) {
+      data = data.copyWith(artwork: _artCache[key]);
+      last = data;
+      _ctrl.add(data);
+      return;
+    }
+
+    // Case 2: SMTC provided artwork
+    if (data.artwork.isNotEmpty) {
+      _artCache[key] = data.artwork;
+      last = data;
+      _ctrl.add(data);
+      return;
+    }
+
+    // Case 3: No artwork initially → emit immediately
+    last = data;
+    _ctrl.add(data);
+
+    // Async fetch
+    if (raw.title.isNotEmpty) {
+      final url = await _fetchArt(raw.title, raw.artist);
+      if (url != null) {
+        _artCache[key] = url;
+        final updated = data.copyWith(artwork: url);
+        last = updated;
+        _ctrl.add(updated);
+      }
+    }
+  }
+
+  /////////////////////////////////////////////////////////////////////////////
+  // Fetch album art
+  /////////////////////////////////////////////////////////////////////////////
+  Future<String?> _fetchArt(String title, String artist) async {
+    try {
+      final query = Uri.encodeComponent("$title $artist");
       final url = Uri.parse(
-        "https://itunes.apple.com/search?term=$q&limit=1&entity=song",
+        "https://itunes.apple.com/search?term=$query&limit=1&entity=song",
       );
 
       final resp = await http.get(url);
       if (resp.statusCode != 200) return null;
 
       final js = jsonDecode(resp.body);
-      if (js['results'] == null || js['results'].isEmpty) return null;
+      if (js["results"] == null || js["results"].isEmpty) return null;
 
-      final art = js['results'][0]['artworkUrl100'] as String?;
-      if (art == null || art.isEmpty) return null;
+      final art = js["results"][0]["artworkUrl100"];
+      if (art == null) return null;
 
       return art.replaceAll("100x100", "600x600");
     } catch (_) {

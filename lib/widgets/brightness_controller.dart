@@ -29,7 +29,7 @@ class BrightnessControl extends ConsumerStatefulWidget {
 }
 
 class _BrightnessControlState extends ConsumerState<BrightnessControl> {
-  bool _initialized = false;
+  bool initialized = false;
   Timer? _debounce;
 
   @override
@@ -102,7 +102,7 @@ class _BrightnessControlState extends ConsumerState<BrightnessControl> {
       debugPrint("Brightness init error: $e");
     }
 
-    if (mounted) setState(() => _initialized = true);
+    if (mounted) setState(() => initialized = true);
   }
 
   // -------------------------------------------------------------------
@@ -131,46 +131,25 @@ class _BrightnessControlState extends ConsumerState<BrightnessControl> {
     return CustomContainer(
       height: 100,
       width: 450,
-      child: Column(
-        crossAxisAlignment: .center,
-        mainAxisAlignment: .center,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20.0),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.brightness_7_outlined,
-                  color: Colors.white54,
-                  size: 20,
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: _PurpleGradientSlider(
-                    value: brightness,
-                    onChanged: (v) {
-                      ref.read(brightnessProvider.notifier).state = v;
-                      _applyBrightness(v);
-                    },
-                  ),
-                ),
-                const SizedBox(width: 20),
-                _ValueNumber(value: brightness),
-              ],
-            ),
-          ),
-          if (!_initialized)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                "initializing…",
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.6),
-                  fontSize: 11,
-                ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20.0),
+        child: Row(
+          children: [
+            Icon(Icons.brightness_7_outlined, color: Colors.white54, size: 20),
+            const SizedBox(width: 20),
+            Expanded(
+              child: _PurpleGradientSlider(
+                value: brightness,
+                onChanged: (v) {
+                  ref.read(brightnessProvider.notifier).state = v;
+                  _applyBrightness(v);
+                },
               ),
             ),
-        ],
+            const SizedBox(width: 20),
+            _ValueNumber(value: brightness),
+          ],
+        ),
       ),
     );
   }

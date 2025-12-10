@@ -1,0 +1,23 @@
+<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
+  <name>Airtel_SADBHAVANA STORE</name>
+  <SSIDConfig>
+    <SSID>
+      <name>Airtel_SADBHAVANA STORE</name>
+    </SSID>
+  </SSIDConfig>
+  <connectionType>ESS</connectionType>
+  <connectionMode>manual</connectionMode>
+  <MSM>
+    <security>
+      <authEncryption>
+        <authentication>WPA2PSK</authentication>
+        <encryption>AES</encryption>
+      </authEncryption>
+      <sharedKey>
+        <keyType>passPhrase</keyType>
+        <protected>false</protected>
+        <keyMaterial>Sharad1972</keyMaterial>
+      </sharedKey>
+    </security>
+  </MSM>
+</WLANProfile>

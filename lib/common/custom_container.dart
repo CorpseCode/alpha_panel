@@ -10,6 +10,7 @@ class CustomContainer extends StatelessWidget {
   final double borderWidth;
   final double radius;
   final EdgeInsetsGeometry? padding;
+  final EdgeInsetsGeometry? margin;
 
   const CustomContainer({
     super.key,
@@ -21,6 +22,7 @@ class CustomContainer extends StatelessWidget {
     this.borderWidth = 2.0,
     this.radius = 10.0,
     this.padding,
+    this.margin
   });
 
   @override
@@ -28,6 +30,7 @@ class CustomContainer extends StatelessWidget {
     return Container(
       height: height,
       width: width,
+      margin: margin,
       padding: padding,
       decoration: BoxDecoration(
         color: backgroundColor,

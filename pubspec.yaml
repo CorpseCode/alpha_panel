@@ -45,6 +45,9 @@ dependencies:
   win32: ^5.15.0
   http: ^1.6.0
   path: ^1.9.1
+  google_fonts: ^6.3.3
+  network_info_plus: ^7.0.0
+  wifi_scan: ^0.4.1+2
 
 dev_dependencies:
   flutter_test:

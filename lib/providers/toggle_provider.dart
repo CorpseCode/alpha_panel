@@ -4,7 +4,7 @@ class ToggleNotifier extends Notifier<bool> {
   @override
   bool build() => true; // initial state
 
-  // void toggle() => state = !state;
+  void toggle() => state = !state;
 
   void enable() => state = true;
 

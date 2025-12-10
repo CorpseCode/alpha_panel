@@ -4,7 +4,7 @@ import 'package:window_manager/window_manager.dart';
 
 class WindowInit {
   static Future<void> initialize() async {
-    const size = Size(1800, 900);
+    const size = Size(1900, 1000);
 
     final options = WindowOptions(
       size: size,
