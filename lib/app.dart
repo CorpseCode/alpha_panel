@@ -1,3 +1,5 @@
+import 'package:alpha/features/vault/providers/vault_setup_provider.dart';
+import 'package:alpha/features/vault/ui/vault_setup_panel.dart';
 import 'package:alpha/services/hotkey.dart';
 import 'package:alpha/services/tray.dart';
 import 'package:alpha/services/smtc_service.dart';
@@ -75,7 +77,7 @@ class _AppState extends ConsumerState<App>
 
     // If panel open and user switches away
     if (visible) {
-      ref.read(toggleProvider.notifier).disable();
+      // ref.read(toggleProvider.notifier).disable();
       SystemAudioVisualizer.stop();
     }
 
@@ -135,7 +137,7 @@ class _AppState extends ConsumerState<App>
   Widget build(BuildContext context) {
     registerRiverpodRef(ref);
     registerTrayRef(ref);
-
+    final needsSetup = ref.watch(needsVaultSetupProvider);
     final visible = ref.watch(toggleProvider);
 
     // Toggle is controlled indirectly by onWindowBlur
@@ -146,19 +148,22 @@ class _AppState extends ConsumerState<App>
 
     return FadeTransition(
       opacity: _fade,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(10, 10, 10, 20),
-        height: 1000,
-        width: 1900,
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: CupertinoColors.systemCyan.withAlpha(110),
-            width: 2.0,
-          ),
-          borderRadius: BorderRadius.circular(10),
-          color: const Color.fromARGB(130, 0, 38, 104),
-        ),
-        child: const AppContent(),
+      child: Stack(
+        // padding: const EdgeInsets.fromLTRB(10, 10, 10, 20),
+        // height: 1000,
+        // width: 1900,
+        // decoration: BoxDecoration(
+        //   border: Border.all(
+        //     color: CupertinoColors.systemCyan.withAlpha(110),
+        //     width: 2.0,
+        //   ),
+        //   borderRadius: BorderRadius.circular(10),
+        //   color: const Color.fromARGB(130, 0, 38, 104),
+        // ),
+        children: <Widget>[
+          const AppContent(),
+          if (needsSetup) VaultSetupPanel(),
+        ],
       ),
     );
   }

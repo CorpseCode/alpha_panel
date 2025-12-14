@@ -15,7 +15,6 @@ class SidebarOverlay extends ConsumerWidget {
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOut,
       left: visible ? 0 : -450,
-      top: 54,
       bottom: 0,
       width: 400,
       child: child,

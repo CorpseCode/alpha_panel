@@ -63,10 +63,21 @@ class _NowPlayingPanelState extends ConsumerState<NowPlayingPanel> {
   }
 
   bool _handleKey(KeyEvent e) {
-    if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.space) {
+    if (e is! KeyDownEvent) return false;
+
+    // 🔴 If user is typing, ignore media keys
+    final focused = FocusManager.instance.primaryFocus;
+    if (focused != null &&
+        focused.context != null &&
+        focused.context!.widget is EditableText) {
+      return false;
+    }
+
+    if (e.logicalKey == LogicalKeyboardKey.space) {
       _sendMediaKey(MediaKey.playPause);
       return true;
     }
+
     return false;
   }
 

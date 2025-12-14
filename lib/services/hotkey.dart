@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 // import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
+import 'package:window_manager/window_manager.dart';
 // import 'package:window_manager/window_manager.dart';
 
 final HotKey toggleOn = HotKey(
@@ -50,6 +51,7 @@ void onToggle() {
   // Your logic when Win + ` is pressed system-wide
   _appRef.read(toggleProvider.notifier).enable();
   if (kDebugMode) print('toggle on');
+  windowManager.focus();
   // windowManager.show();
 }
 
