@@ -1,5 +1,3 @@
-import 'package:alpha/features/vault/providers/vault_setup_provider.dart';
-import 'package:alpha/features/vault/ui/vault_setup_panel.dart';
 import 'package:alpha/services/hotkey.dart';
 import 'package:alpha/services/tray.dart';
 import 'package:alpha/services/smtc_service.dart';
@@ -137,7 +135,6 @@ class _AppState extends ConsumerState<App>
   Widget build(BuildContext context) {
     registerRiverpodRef(ref);
     registerTrayRef(ref);
-    final needsSetup = ref.watch(needsVaultSetupProvider);
     final visible = ref.watch(toggleProvider);
 
     // Toggle is controlled indirectly by onWindowBlur
@@ -162,7 +159,6 @@ class _AppState extends ConsumerState<App>
         // ),
         children: <Widget>[
           const AppContent(),
-          if (needsSetup) VaultSetupPanel(),
         ],
       ),
     );
