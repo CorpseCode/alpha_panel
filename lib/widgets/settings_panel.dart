@@ -1,4 +1,4 @@
-import 'dart:ui';
+
 
 import 'package:alpha/common/custom_container.dart';
 import 'package:alpha/providers/app_settings_panel_provider.dart';
@@ -203,7 +203,7 @@ class HueAlphaPicker extends StatelessWidget {
             Colors.red,
           ],
           onChanged: (v) {
-            onChanged(hsv.withHue(v).toColor().withValues(alpha: color.opacity));
+            onChanged(hsv.withHue(v).toColor().withValues(alpha: color.a));
           },
         ),
         const SizedBox(height: 12),
